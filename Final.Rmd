@@ -1,0 +1,117 @@
+---
+title: "Practical Maching Learning Course Project"
+output: 
+  html_document:
+    keep_md: true
+---
+
+# Loading train and test dataset
+``` {r load}
+require(caret)
+ptrain <- read.csv("pml-training.csv")
+ptest <- read.csv("pml-testing.csv")
+```
+
+## Partition training data set into training and validation datasets to estimate out-of-sample error
+```{r create}
+set.seed(10)
+inTrain <- createDataPartition(y= ptrain$classe, p = .7, list = FALSE)
+ptrain1 <- ptrain[inTrain, ]
+ptrain2 <- ptrain[-inTrain, ]
+```
+
+## Reduce variables 
+```{r reduce}
+# Reduce number of features by removing variables with nearly zero variance i.e. variables that are almost always NA
+
+# remove variables with nearly zero variance
+nzv <- nearZeroVar(ptrain1)
+ptrain1 <- ptrain1[, -nzv]
+ptrain2 <- ptrain2[, -nzv]
+
+# remove variables that are almost always NA
+mostlyNA <- sapply(ptrain1, function(x) mean(is.na(x))) > 0.95
+ptrain1 <- ptrain1[, mostlyNA==F]
+ptrain2 <- ptrain2[, mostlyNA==F]
+
+# remove miscellaneous variables that are not useful for prediction 
+#(X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp) --> 1st 5 vars
+ptrain1 <- ptrain1[, -(1:5)]
+ptrain2 <- ptrain2[, -(1:5)]
+```
+
+## Build the Model
+```{r model}
+# Use Random Forest model. Fit the model on small training set (ptrain1), and instruct the "train" function to use 3-fold cross-validation to select optimal tuning parameters for the model.
+
+# instruct train to use 3-fold CV to select optimal tuning parameters
+fitControl <- trainControl(method="cv", number=3, verboseIter=F)
+
+# fit model on ptrain1
+fit <- train(classe ~ ., data=ptrain1, method="rf", trControl=fitControl)
+
+
+```
+
+## Print Model Results
+```{r print}
+# print final model to see tuning parameters it chose
+fit$finalModel
+```
+Results: 500 trees are used with 27 variables at each split.
+
+## Model Evaluation and Selection
+```{r eval}
+# Use the fitted model to predict the label ("classe") in the other training set (ptrain2), and show the confusion matrix to compare the predicted versus the actual labels:
+
+# use model to predict classe in validation set (ptrain2)
+preds <- predict(fit, newdata=ptrain2)
+
+# show confusion matrix to get estimate of out-of-sample error
+confusionMatrix(ptrain2$classe, preds)
+```
+Results: The accuracy is 99.8%, thus predicted accuracy for the out-of-sample error is 0.2%. Random Forest will be used to do prediction.
+
+## Training using Selected Model
+``` {r retrain}
+# Train on the original training set
+# remove variables with nearly zero variance
+nzv <- nearZeroVar(ptrain)
+ptrain <- ptrain[, -nzv]
+ptest <- ptest[, -nzv]
+
+# remove variables that are almost always NA
+mostlyNA <- sapply(ptrain, function(x) mean(is.na(x))) > 0.95
+ptrain <- ptrain[, mostlyNA==F]
+ptest <- ptest[, mostlyNA==F]
+
+# remove variables that don't make intuitive sense for prediction (X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp), which happen to be the first five variables
+ptrain <- ptrain[, -(1:5)]
+ptest <- ptest[, -(1:5)]
+
+# re-fit model using full training set (ptrain)
+fitControl <- trainControl(method="cv", number=3, verboseIter=F)
+fit <- train(classe ~ ., data=ptrain, method="rf", trControl=fitControl)
+
+```
+
+## Making Predictions
+``` {r predict}
+# predict on test set
+preds <- predict(fit, newdata=ptest)
+
+# convert predictions to character vector
+preds <- as.character(preds)
+
+# create function to write predictions to files
+pml_write_files <- function(x) {
+    n <- length(x)
+    for(i in 1:n) {
+        filename <- paste0("problem_id_", i, ".txt")
+        write.table(x[i], file=filename, quote=F, row.names=F, col.names=F)
+    }
+}
+
+# create prediction files to submit
+pml_write_files(preds)
+```
